@@ -1,0 +1,11 @@
+# rhombrick-survey
+
+Multi-threaded tiling solver for batch crunching rhombrick tilesets on a headless server.
+
+
+
+## License
+
+Copyright (C) 2015 julesb
+
+Distributed under the Eclipse Public License, the same as Clojure.
