@@ -9,6 +9,7 @@
 (def line-num (atom 0))
 (def start-offset (atom 1))
 (def end-offset (atom 0x1000000000000))
+(def num-to-process (atom 0))
 
 (defn tiling-uses-all-tile-forms? [ts]
   (let [tilecodes (map #(normalize-tilecode (val %)) (ts :tiles))
@@ -58,36 +59,44 @@
             )
           
           (reset! line-num @start-offset)
+          (reset! num-to-process (- @end-offset @start-offset))
           
           (with-open [rdr (reader infile)]
-            (doseq [line (drop (dec @start-offset) (line-seq rdr))]
+            (doseq [line (take @num-to-process
+                               (drop (dec @start-offset)
+                                     (line-seq rdr)))]
 
-              (if (< @line-num @end-offset)
+              ;(if (< @line-num @end-offset)
                 (let [initial-state (read-string line)]
                   (print (str (format "[%d] " @line-num)
-                           (get-in initial-state [:params :tileset]) " "))
+                              (get-in initial-state [:params :tileset]) " "))
 
-                  (let [new-state (-> (make-tiling-best-of-n initial-state 3)
+                  (let [new-state (-> (make-tiling-best-of-n initial-state 2)
                                       (assoc :input-seq-id @line-num))
                         solved? (new-state :solved)]
                     (if solved?
-                      (print "[SOLVED] ")
-                      (print "[UNSOLVED] "))
-
+                      (print (str (format "[SOLVED] [i:%d t:%d] "
+                                          (new-state :iters)
+                                          (count (new-state :tiles)))))
+                      (print (str (format "[UNSOLVED] [i:%d t:%d] "
+                                          (new-state :iters)
+                                          (count (new-state :tiles))))))
                     (if (and
-                          solved?
-                          (tiling-uses-balanced-tile-distribution? new-state))
+                          true
+                          ;solved?
+                          ;(tiling-uses-balanced-tile-distribution? new-state)
+                          )
                       (do
-                        (println "[QUALIFIED] " (count (new-state :tiles)) "tiles")
+                        (println "")
+                        ;(println "[QUALIFIED]")
                         (save-tiler-state new-state outfile))
                       (println "[REJECT]")
                       )))
-                ; else
-                  (if (= @line-num @end-offset)
-                    (println "\nREACHED END OFFSET.. DONE!"))
-                )
+
               (swap! line-num inc)
-            )))
-          )))
+            )
+ 
+            (println "\nREACHED END OFFSET.. DONE!")
+            )))))
       
 
