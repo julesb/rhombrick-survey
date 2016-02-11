@@ -1,6 +1,8 @@
 (ns rhombrick-survey.core
   (:use [rhombrick.offline]
         [rhombrick.tilecode]
+        [rhombrick.tiling]
+        [rhombrick.staticgeometry]
         [clojure.java.io]
         [clojure.math.combinatorics])
   (:gen-class :main true)
@@ -19,7 +21,7 @@
     (= tileforms tileset)))
 
 
-(defn tiling-uses-balanced-tile-distribution? [ts]
+(defn tiling-balanced? [ts]
   (let [min-ratio 0.1
         tiles-norm (->> (vals (ts :tiles)) ; (map #(second (val %) (ts :tiles))
                         (map normalize-tilecode)
@@ -36,10 +38,92 @@
     answer))
 
 
+(defn validate-state [ts]
+  (let [tileset (get-in ts [:params :tileset])]
+    (and
+      ;true
+      (= (count tileset) 2)
+      (> (count (ts :tiles)) 2)
+      ;(= (ts :solved) true)
+      (tiling-balanced? ts)
+      (not (zero? (compare (first tileset) "------------")))
+      (not (zero? (compare (second tileset) "------------")))
+      
+      (or ; reject tilesets that dont have at least one tile with at least 3 conns 
+        (> (get-num-connected (first tileset)) 2)
+        (> (get-num-connected (second tileset)) 2))
+      )
+  ))
+
+(defn tiler-can-iterate?2 [ts]
+  (and (= (ts :run-status) :runnable)
+       (< (count (ts :tiles)) (get-in ts [:params :max-tiles]))
+       (< (ts :iters) (get-in ts [:params :max-iters]))
+       (not (and (= (ts :iters) 256) (< (count (ts :tiles)) 13))) ; early bailout
+       ))
+
+(defn make-tiling2 [ts]
+  (if (tiler-can-iterate?2 ts)
+    (recur (make-backtracking-tiling-iteration4 ts))
+    ts))
+
+
+(defn make-tiling-best-of-n2 [ts n]
+  (let [tilings (->> (pmap (fn [_] (make-tiling2 ts)) (range n))
+                     (filter validate-state)
+                     (sort-by #(count (% :tiles)))
+                     (last))
+        ]
+
+    ;(println "generated" n "tilings")
+    tilings
+    ))
+
+
+(defn generate-random-tiling [idx]
+  (set-topology :rhombic-dodecahedron)
+  (let [tileset (make-random-compatible-tileset 2)
+        initial-state (->> (make-params :tileset tileset
+                                        :seed (rand-nth tileset)
+                                        :max-iters 4096
+                                        :max-radius 8
+                                        :max-tiles 200)
+                           (make-state))
+        ]
+    (print (str (format "[%d] " idx)
+           (get-in initial-state [:params :tileset]) " "))
+    (make-tiling-best-of-n2 initial-state 2)
+    )
+  )
+
+(defn run-random [n outfile]
+  (doseq [i (range n)]
+    (if-let [tiling (generate-random-tiling i)]
+      (do
+        (if (tiling :solved)
+          (print (str (format "[SOLVED] [i:%d t:%d] "
+                              (tiling :iters) (count (tiling :tiles)))))
+          (print (str (format "[UNSOLVED] [i:%d t:%d] "
+                              (tiling :iters) (count (tiling :tiles))))))
+        (when (tiling :solved)
+              ;(or (tiling :solved)
+              ;    (> (count (tiling :tiles)) 13))
+
+          (print "[SAVE]")
+          (save-tiler-state tiling outfile)
+        )
+        (println))
+      (println "[REJECT]"))
+  ))
+
+
 (defn -main [& args]
   (cond
     (zero? (count args))
-      (println "error: usage <infile> and <outfile> [startidx]")
+      (do
+        (run-random 64 "rd-twotiles-randomsurvey.tiling")
+        (shutdown-agents))
+      ;(println "error: usage <infile> and <outfile> [startidx]")
     (>= (count args) 2)
       (do 
         (println "args:" args)
@@ -87,16 +171,19 @@
                           ;(tiling-uses-balanced-tile-distribution? new-state)
                           )
                       (do
-                        (println "")
                         ;(println "[QUALIFIED]")
-                        (save-tiler-state new-state outfile))
+                        (save-tiler-state new-state outfile)
+                        (println "")
+                        )
                       (println "[REJECT]")
                       )))
 
               (swap! line-num inc)
             )
- 
-            (println "\nREACHED END OFFSET.. DONE!")
-            )))))
+            )
+          (println "\nREACHED END OFFSET.. DONE!")
+          (shutdown-agents)
+          
+          ))))
       
 
